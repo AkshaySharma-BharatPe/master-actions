@@ -9656,75 +9656,109 @@ module.exports = JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45,46],"valid"]
 /******/ 	}
 /******/ 	
 /************************************************************************/
-/******/ 	/* webpack/runtime/compat get default export */
-/******/ 	(() => {
-/******/ 		// getDefaultExport function for compatibility with non-harmony modules
-/******/ 		__nccwpck_require__.n = (module) => {
-/******/ 			var getter = module && module.__esModule ?
-/******/ 				() => (module['default']) :
-/******/ 				() => (module);
-/******/ 			__nccwpck_require__.d(getter, { a: getter });
-/******/ 			return getter;
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/define property getters */
-/******/ 	(() => {
-/******/ 		// define getter functions for harmony exports
-/******/ 		__nccwpck_require__.d = (exports, definition) => {
-/******/ 			for(var key in definition) {
-/******/ 				if(__nccwpck_require__.o(definition, key) && !__nccwpck_require__.o(exports, key)) {
-/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
-/******/ 				}
-/******/ 			}
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
-/******/ 	(() => {
-/******/ 		__nccwpck_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/make namespace object */
-/******/ 	(() => {
-/******/ 		// define __esModule on exports
-/******/ 		__nccwpck_require__.r = (exports) => {
-/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
-/******/ 			}
-/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
-/******/ 		};
-/******/ 	})();
-/******/ 	
 /******/ 	/* webpack/runtime/compat */
 /******/ 	
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
-// This entry need to be wrapped in an IIFE because it need to be in strict mode.
+// This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
 (() => {
-"use strict";
-__nccwpck_require__.r(__webpack_exports__);
-/* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3134);
-/* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(_actions_github__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(5127);
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__nccwpck_require__.n(_actions_core__WEBPACK_IMPORTED_MODULE_1__);
+const core = __nccwpck_require__(5127);
+const github = __nccwpck_require__(3134);
 
+const main = async () => {
+  try {
+    /**
+     * We need to fetch all the inputs that were provided to our action
+     * and store them in variables for us to use.
+     **/
+    const owner = core.getInput('owner', { required: true });
+    const repo = core.getInput('repo', { required: true });
+    const pr_number = core.getInput('pr_number', { required: true });
+    const token = core.getInput('token', { required: true });
 
+    const octokit = new github.getOctokit(token);
 
-try {
-  // `who-to-greet` input defined in action metadata file
-  const nameToGreet = (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('who-to-greet');
-  console.log(`Hello ${nameToGreet}!`);
-  const time = (new Date()).toTimeString();
-  (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.setOutput)("time", time);
-  // Get the JSON webhook payload for the event that triggered the workflow
-  const payload = JSON.stringify(_actions_github__WEBPACK_IMPORTED_MODULE_0__.context.payload, undefined, 2)
-  console.log(`The event payload: ${payload}`);
-} catch (error) {
-  (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.setFailed)(error.message);
-}
+    const { data: changedFiles } = await octokit.rest.pulls.listFiles({
+      owner,
+      repo,
+      pull_number: pr_number,
+    });
+
+    let diffData = {
+      additions: 0,
+      deletions: 0,
+      changes: 0
+    };
+
+    diffData = changedFiles.reduce((acc, file) => {
+      acc.additions += file.additions;
+      acc.deletions += file.deletions;
+      acc.changes += file.changes;
+      return acc;
+    }, diffData);
+
+    /**
+     * Loop over all the files changed in the PR and add labels according 
+     * to files types.
+     **/
+    for (const file of changedFiles) {
+      /**
+       * Add labels according to file types.
+       */
+      const fileExtension = file.filename.split('.').pop();
+      switch(fileExtension) {
+        case 'md':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['markdown'],
+          });
+        case 'js':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['javascript'],
+          });
+        case 'yml':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['yaml'],
+          });
+        case 'yaml':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['yaml'],
+          });
+        }
+      }
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: pr_number,
+        body: `
+          Pull Request #${pr_number} has been updated with: \n
+          - ${diffData.changes} changes \n
+          - ${diffData.additions} additions \n
+          - ${diffData.deletions} deletions \n
+        `
+      });
+  
+    } catch (error) {
+      core.setFailed(error.message);
+    }
+  }
+  
+  // Call the main function to run the action
+  main();
+  
 })();
 
 module.exports = __webpack_exports__;

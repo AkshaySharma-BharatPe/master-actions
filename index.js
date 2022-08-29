@@ -1,15 +1,95 @@
-import { context } from '@actions/github';
-import { getInput, setOutput, setFailed } from '@actions/core';
+const core = require('@actions/core');
+const github = require('@actions/github');
 
-try {
-  // `who-to-greet` input defined in action metadata file
-  const nameToGreet = getInput('who-to-greet');
-  console.log(`Hello ${nameToGreet}!`);
-  const time = (new Date()).toTimeString();
-  setOutput("time", time);
-  // Get the JSON webhook payload for the event that triggered the workflow
-  const payload = JSON.stringify(context.payload, undefined, 2)
-  console.log(`The event payload: ${payload}`);
-} catch (error) {
-  setFailed(error.message);
-}
+const main = async () => {
+  try {
+    /**
+     * We need to fetch all the inputs that were provided to our action
+     * and store them in variables for us to use.
+     **/
+    const owner = core.getInput('owner', { required: true });
+    const repo = core.getInput('repo', { required: true });
+    const pr_number = core.getInput('pr_number', { required: true });
+    const token = core.getInput('token', { required: true });
+
+    const octokit = new github.getOctokit(token);
+
+    const { data: changedFiles } = await octokit.rest.pulls.listFiles({
+      owner,
+      repo,
+      pull_number: pr_number,
+    });
+
+    let diffData = {
+      additions: 0,
+      deletions: 0,
+      changes: 0
+    };
+
+    diffData = changedFiles.reduce((acc, file) => {
+      acc.additions += file.additions;
+      acc.deletions += file.deletions;
+      acc.changes += file.changes;
+      return acc;
+    }, diffData);
+
+    /**
+     * Loop over all the files changed in the PR and add labels according 
+     * to files types.
+     **/
+    for (const file of changedFiles) {
+      /**
+       * Add labels according to file types.
+       */
+      const fileExtension = file.filename.split('.').pop();
+      switch(fileExtension) {
+        case 'md':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['markdown'],
+          });
+        case 'js':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['javascript'],
+          });
+        case 'yml':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['yaml'],
+          });
+        case 'yaml':
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: pr_number,
+            labels: ['yaml'],
+          });
+        }
+      }
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: pr_number,
+        body: `
+          Pull Request #${pr_number} has been updated with: \n
+          - ${diffData.changes} changes \n
+          - ${diffData.additions} additions \n
+          - ${diffData.deletions} deletions \n
+        `
+      });
+  
+    } catch (error) {
+      core.setFailed(error.message);
+    }
+  }
+  
+  // Call the main function to run the action
+  main();
+  
